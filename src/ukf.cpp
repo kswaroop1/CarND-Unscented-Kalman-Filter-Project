@@ -13,7 +13,7 @@ using std::vector;
 /**
  * Initializes Unscented Kalman filter
  */
-UKF::UKF() : UKF(false, std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN(), false, true, true) {}
+UKF::UKF() : UKF(false, -1.0, -1.0, false, true, true) {}
 UKF::UKF(bool verboseMode, double std_a, double std_yawdd, bool dynamicProcesNoise, bool useLaser, bool useRadar)
   : verboseMode_(verboseMode), is_initialized_(false), time_us_(0), dynamicProcesNoise_(dynamicProcesNoise) {
   use_laser_ = useLaser;// if this is false, laser measurements will be ignored (except during init)
@@ -26,8 +26,8 @@ UKF::UKF(bool verboseMode, double std_a, double std_yawdd, bool dynamicProcesNoi
   Xsig_pred_ = MatrixXd(n_x_, 2*n_aug_+1);  // predicted sigma points matrix
   time_us_ = 0ll;       // time when the state is true, in us
 
-  std_a_ = isnan(std_a) ? 0.4 : std_a;              // Process noise standard deviation longitudinal acceleration in m/s^2
-  std_yawdd_ = isnan(std_yawdd) ? 0.3 : std_yawdd;  // Process noise standard deviation yaw acceleration in rad/s^2
+  std_a_ = (std_a<0.0) ? 0.4 : std_a;              // Process noise standard deviation longitudinal acceleration in m/s^2
+  std_yawdd_ = (std_yawdd<0.0) ? 0.3 : std_yawdd;  // Process noise standard deviation yaw acceleration in rad/s^2
 
   std_laspx_ = 0.15;    // Laser measurement noise standard deviation position1 in m
   std_laspy_ = 0.15;    // Laser measurement noise standard deviation position2 in m

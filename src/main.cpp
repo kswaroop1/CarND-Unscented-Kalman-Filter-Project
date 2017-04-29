@@ -1,10 +1,7 @@
-
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <vector>
-#include <cstdlib>
-#include <limits>
 #include "Eigen/Dense"
 #include "ukf.h"
 #include "ground_truth_package.h"
@@ -15,11 +12,11 @@ using Eigen::MatrixXd;
 using Eigen::VectorXd;
 using std::vector;
 
-double read_double(string str) {
+double read_double(string str, double default_value) {
   try {
     return std::stod(str);
   } catch (...) {
-    return std::numeric_limits<double>::quiet_NaN();
+    return default_value; // std::numeric_limits<double>::quiet_NaN();
   }
 }
 
@@ -37,7 +34,8 @@ void check_arguments(int argc, char* argv[], bool& verboseMode, double& std_a, d
 
   bool has_valid_args = false, sensorsSpecified = false;
   verboseMode = dynamicProcesNoise = reportStdDev = useLaser = useRadar = false;
-  std_a = std_yawdd = std::numeric_limits<double>::quiet_NaN();
+  std_a = std_yawdd = -1.0; // C++11 std NaN didn't work for reviewer std::numeric_limits<double>::quiet_NaN();
+                            // -1 ok to indicate value wasn't overridden, as mathematically std_dev can't be -ve
 
   // make sure the user has provided input and output files
   if (argc == 1) {
@@ -57,12 +55,12 @@ void check_arguments(int argc, char* argv[], bool& verboseMode, double& std_a, d
       case 'd': dynamicProcesNoise = true; continue;
       case 'r': reportStdDev = true; continue;
       case 'a':
-        if ((i + 1) < argc) { std_a = read_double(argv[i + 1]); continue; }
+        if ((i + 1) < argc) { std_a = read_double(argv[i + 1], -1.0); continue; }
         cerr << "Please specify value for std_a when -a is specified" << endl;
         has_valid_args = false;
         goto done;
       case 'y':
-        if ((i + 1) < argc) { std_yawdd = read_double(argv[i + 1]); continue; }
+        if ((i + 1) < argc) { std_yawdd = read_double(argv[i + 1], -1.0); continue; }
         cerr << "Please specify value for std_yawdd when -y is specified" << endl;
         has_valid_args = false;
         goto done;
