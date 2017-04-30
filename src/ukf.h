@@ -66,6 +66,7 @@ public:
 
 private:
   static constexpr int n_z_ = 3;
+  int n_sig_;
   bool verboseMode_;
   bool dynamicProcesNoise_;  // if true: update project noise params (accelaration & yaw_rate change) dynamically
   MatrixXd I;          // identity matrix

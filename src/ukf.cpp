@@ -4,6 +4,7 @@
 #include <iostream>
 #include <iomanip>
 #include <limits>
+#include <cmath>
 
 using namespace std;
 using Eigen::MatrixXd;
@@ -16,15 +17,15 @@ using std::vector;
 UKF::UKF() : UKF(false, -1.0, -1.0, false, true, true) {}
 UKF::UKF(bool verboseMode, double std_a, double std_yawdd, bool dynamicProcesNoise, bool useLaser, bool useRadar)
   : verboseMode_(verboseMode), is_initialized_(false), time_us_(0), dynamicProcesNoise_(dynamicProcesNoise) {
-  use_laser_ = useLaser;// if this is false, laser measurements will be ignored (except during init)
-  use_radar_ = useRadar;// if this is false, radar measurements will be ignored (except during init)
-  n_x_ = 5;             // State dimension
-  n_aug_ = 2 + n_x_;    // Augmented state dimension
-  lambda_ = 3 - n_aug_; // spread parameter
-  x_ = VectorXd(n_x_);  // initial state vector
-  P_ = MatrixXd(n_x_, n_x_);  // initial covariance matrix
-  Xsig_pred_ = MatrixXd(n_x_, 2*n_aug_+1);  // predicted sigma points matrix
-  time_us_ = 0ll;       // time when the state is true, in us
+  use_laser_ = useLaser;    // if this is false, laser measurements will be ignored (except during init)
+  use_radar_ = useRadar;    // if this is false, radar measurements will be ignored (except during init)
+  n_x_ = 5;                 // State dimension
+  n_aug_ = 2 + n_x_;        // Augmented state dimension
+  n_sig_ = 2 * n_aug_ + 1;  // number of sigma points
+  x_ = VectorXd(n_x_);      // initial state vector
+  P_ = MatrixXd(n_x_, n_x_);// initial covariance matrix
+  Xsig_pred_ = MatrixXd(n_x_, n_sig_);  // predicted sigma points matrix
+  time_us_ = 0ll;           // time when the state is true, in us
 
   std_a_ = (std_a<0.0) ? 0.4 : std_a;              // Process noise standard deviation longitudinal acceleration in m/s^2
   std_yawdd_ = (std_yawdd<0.0) ? 0.3 : std_yawdd;  // Process noise standard deviation yaw acceleration in rad/s^2
@@ -39,7 +40,7 @@ UKF::UKF(bool verboseMode, double std_a, double std_yawdd, bool dynamicProcesNoi
   NIS_laser_ = 0.0;     // the current NIS for laser
 
   Xsig_pred_.fill(0.0);
-  weights_ = VectorXd(2 * n_aug_ + 1);
+  weights_ = VectorXd(n_sig_);
   weights_.fill(0.5 / (lambda_ + n_aug_));
   weights_(0) = weights_(0) * 2 * lambda_;
 
@@ -58,7 +59,7 @@ UKF::UKF(bool verboseMode, double std_a, double std_yawdd, bool dynamicProcesNoi
     0.0, 0.0, 0.0, std_radphi_, 0.0,
     0.0, 0.0, 0.0, 0.0, std_radphi_; // std dev of yaw_rate not available, use that of phi
 
-  H_laser_ = MatrixXd(2, 5);
+  H_laser_ = MatrixXd(2, n_x_);
   H_laser_ << // measurement mapper - laser
     1.0, 0.0, 0.0, 0.0, 0.0,
     0.0, 1.0, 0.0, 0.0, 0.0;
@@ -94,8 +95,7 @@ void UKF::Initialize(const MeasurementPackage& meas_package) {
   else if (meas_package.sensor_type_ == MeasurementPackage::LASER) {
     x_ << meas_package.raw_measurements_[0], meas_package.raw_measurements_[1], 0.0, 0.0, 0.0;
   }
-  if (x_[0] == 0.0) x_[0] = 0.01; // init (to 0.01), to
-  if (x_[1] == 0.0) x_[1] = 0.01; // overcome divide by zero
+
   is_initialized_ = true;
 }
 
@@ -222,7 +222,7 @@ void UKF::AugmentedSigmaPoints(MatrixXd& Xsig_aug, MatrixXd& P_aug) {
   P_aug(n_x_, n_x_ + 1) = P_aug(n_x_ + 1, n_x_) = 0;
 
   //create sigma point matrix
-  Xsig_aug = MatrixXd(n_aug_, 2 * n_aug_ + 1);
+  Xsig_aug = MatrixXd(n_aug_, n_sig_);
 
   //create square root matrix
   auto A = MatrixXd{ P_aug.llt().matrixL() };
@@ -236,7 +236,7 @@ void UKF::AugmentedSigmaPoints(MatrixXd& Xsig_aug, MatrixXd& P_aug) {
 }
 
 void UKF::SigmaPointPrediction(const MatrixXd& Xsig_aug, const MatrixXd& P_aug, const double delta_t) {
-  for (auto i = 0; i< 2 * n_aug_ + 1; ++i) {
+  for (auto i = 0; i<n_sig_; ++i) {
     auto px = Xsig_aug(0, i), py = Xsig_aug(1, i);
     auto v = Xsig_aug(2, i), yaw = Xsig_aug(3, i), yawd = Xsig_aug(4, i);
     auto nu_a = Xsig_aug(5, i), nu_yawdd = Xsig_aug(6, i);
@@ -255,13 +255,10 @@ void UKF::SigmaPointPrediction(const MatrixXd& Xsig_aug, const MatrixXd& P_aug, 
 }
 
 void UKF::PredictMeanAndCovariance() {
-  x_.fill(0.0);
-  for (int i = 0; i<2 * n_aug_ + 1; ++i) {
-    x_ = x_ + weights_(i) * Xsig_pred_.col(i);
-  }
+  x_ = Xsig_pred_ * weights_;
   //predict state covariance matrix
   P_.fill(0.0);
-  for (auto i = 0; i<2 * n_aug_ + 1; ++i) {
+  for (auto i = 0; i<n_sig_; ++i) {
     auto e = VectorXd{ Xsig_pred_.col(i) - x_ };
     Tools::NormalizeAngle(e(3));
     P_ += weights_(i) * (e*e.transpose());
@@ -272,10 +269,11 @@ constexpr int UKF::n_z_; // define storage, needed, otherwise get link errors wi
 
 void UKF::PredictRadarMeasurement(MatrixXd& Zsig, VectorXd& z_pred, MatrixXd& S) {
   //transform sigma points into measurement space
-  Zsig = MatrixXd(UKF::n_z_, 2 * n_aug_ + 1);
+  Zsig = MatrixXd(UKF::n_z_, n_sig_);
   Zsig.fill(0.0);
-  for (auto i = 0; i<2 * n_aug_ + 1; ++i) {
+  for (auto i = 0; i<n_sig_; ++i) {
     double px = Xsig_pred_(0, i), py = Xsig_pred_(1, i), v = Xsig_pred_(2, i), yaw = Xsig_pred_(3, i);
+    Tools::EnsureNonZero(px); Tools::EnsureNonZero(py);
 
     Zsig(0, i) = sqrt(px*px + py*py);
     Zsig(1, i) = atan2(py, px);
@@ -285,7 +283,7 @@ void UKF::PredictRadarMeasurement(MatrixXd& Zsig, VectorXd& z_pred, MatrixXd& S)
   //mean predicted measurement
   z_pred = VectorXd(UKF::n_z_);
   z_pred.fill(0.0);
-  for (auto i = 0; i<2 * n_aug_ + 1; ++i) {
+  for (auto i = 0; i<n_sig_; ++i) {
     z_pred += weights_(i)*Zsig.col(i);
   }
 
@@ -294,7 +292,7 @@ void UKF::PredictRadarMeasurement(MatrixXd& Zsig, VectorXd& z_pred, MatrixXd& S)
   //calculate measurement covariance matrix S
   S.fill(0.0);
   S(0, 0) = std_radr_*std_radr_; S(1, 1) = std_radphi_*std_radphi_; S(2, 2) = std_radrd_*std_radrd_;
-  for (auto i = 0; i<2 * n_aug_ + 1; ++i) {
+  for (auto i = 0; i<n_sig_; ++i) {
     auto e = VectorXd{ Zsig.col(i) - z_pred };
     Tools::NormalizeAngle(e(1));
     S += weights_(i)*(e*e.transpose());
@@ -307,7 +305,7 @@ void UKF::UpdateState(const MatrixXd& Zsig, const VectorXd& z_pred, const Matrix
 
   //calculate cross correlation matrix
   Tc.fill(0.0);
-  for (auto i = 0; i<2 * n_aug_ + 1; ++i) {
+  for (auto i = 0; i<n_sig_; ++i) {
     auto ez = VectorXd{ Zsig.col(i) - z_pred };
     Tools::NormalizeAngle(ez(1));
 
